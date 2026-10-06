@@ -169,7 +169,11 @@ export function Visualizer() {
 
   return (
     <div className="flex h-dvh flex-col overflow-hidden bg-background text-foreground">
-      <header className="flex shrink-0 items-center gap-3 border-b px-3 py-2 sm:px-4">
+      <div
+        aria-hidden
+        className="h-1 shrink-0 bg-[linear-gradient(90deg,var(--dt-ok),var(--dt-ref),var(--dt-string),var(--dt-symbol))]"
+      />
+      <header className="flex shrink-0 items-center gap-3 border-b bg-[linear-gradient(90deg,color-mix(in_oklch,var(--primary)_14%,var(--background)),color-mix(in_oklch,var(--dt-symbol)_12%,var(--background))_42%,var(--background))] px-3 py-2 sm:px-4">
         <div className="flex min-w-0 items-center gap-2.5">
           <TreeMark />
           <div className="min-w-0">
@@ -330,9 +334,9 @@ function TreeMark() {
         strokeWidth="1.8"
         strokeLinecap="round"
       />
-      <circle cx="16" cy="12" r="1.3" className="fill-primary" />
-      <circle cx="8.8" cy="20.8" r="1.3" className="fill-primary" />
-      <circle cx="23.2" cy="23" r="1.3" className="fill-primary" />
+      <circle cx="16" cy="12" r="1.3" className="fill-[var(--dt-string)]" />
+      <circle cx="8.8" cy="20.8" r="1.3" className="fill-[var(--dt-ok)]" />
+      <circle cx="23.2" cy="23" r="1.3" className="fill-[var(--dt-ref)]" />
     </svg>
   );
 }
