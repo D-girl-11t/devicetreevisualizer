@@ -27,6 +27,10 @@ const FACING = new Set([
   "regulator",
 ]);
 
+export function descriptionFile(brief: BoardBrief): string {
+  return [brief.title, "", brief.board, "", "Pins", brief.pins, "", "Not activated", brief.inactive, "", "What you can build", brief.scope, ""].join("\n");
+}
+
 export function summarizeBoard(doc: DtDocument, board: BringupBoard, map: MemoryMap): BoardBrief {
   const title = board.model ?? "This board file";
   return {

@@ -9,8 +9,10 @@ import { decompileDtb, isDtb } from "@/lib/dts/dtb";
 import { toJson } from "@/lib/dts/format";
 import { parseDts } from "@/lib/dts/parse";
 import { defaultExample, examples, type Example } from "@/lib/dts/samples";
+import type { SavedTree } from "@/lib/dts/saved";
 import type { DtRef } from "@/lib/dts/types";
 import { BoardPanel } from "@/components/device-tree/board-panel";
+import { EditPanel, loadSavedTrees } from "@/components/device-tree/edit-panel";
 import { BringupPanel } from "@/components/device-tree/bringup-panel";
 import { Inspector } from "@/components/device-tree/inspector";
 import { parentPath, TreePanel } from "@/components/device-tree/tree-panel";
@@ -20,8 +22,8 @@ import { cn } from "cn";
 import { Download, FoldVertical, Moon, Sun, UnfoldVertical } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 
-type Tab = "source" | "tree" | "path" | "board" | "node";
-type Center = "tree" | "path" | "board";
+type Tab = "source" | "tree" | "path" | "board" | "edit" | "node";
+type Center = "tree" | "path" | "board" | "edit";
 
 export function Visualizer() {
   const [source, setSource] = useState(defaultExample.source);
@@ -38,6 +40,7 @@ export function Visualizer() {
   const [center, setCenter] = useState<Center>("tree");
   const [pinnedLine, setPinnedLine] = useState<number | null>(null);
   const [dragging, setDragging] = useState(false);
+  const [saved, setSaved] = useState<SavedTree[]>(() => (typeof window === "undefined" ? [] : loadSavedTrees()));
 
   const doc = useMemo(() => parseDts(source), [source]);
   const index = useMemo(() => indexDocument(doc), [doc]);
@@ -45,6 +48,11 @@ export function Visualizer() {
   const memoryMap = useMemo(() => analyzeMemoryMap(doc), [doc]);
   const brief = useMemo(() => summarizeBoard(doc, board, memoryMap), [doc, board, memoryMap]);
   const diagram = useMemo(() => buildBoardDiagram(doc, board, memoryMap), [doc, board, memoryMap]);
+  const fileBase =
+    (brief.title || "device-tree")
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, "-")
+      .replace(/^-|-$/g, "") || "device-tree";
   const resolvedPath =
     selectedPath && index.byPath.has(selectedPath)
       ? selectedPath
@@ -252,6 +260,7 @@ export function Visualizer() {
             ["tree", "Tree"],
             ["path", "Path"],
             ["board", "Board"],
+            ["edit", "Edit"],
             ["node", "Node"],
           ] as const
         ).map(([id, label]) => (
@@ -260,7 +269,7 @@ export function Visualizer() {
             type="button"
             onClick={() => {
               setTab(id);
-              if (id === "tree" || id === "path" || id === "board") setCenter(id);
+              if (id === "tree" || id === "path" || id === "board" || id === "edit") setCenter(id);
             }}
             className={cn(
               "rounded-md px-2.5 py-1 text-sm",
@@ -303,7 +312,7 @@ export function Visualizer() {
         <div
           className={cn(
             "min-h-0 min-w-0 flex-1 flex-col",
-            tab === "tree" || tab === "path" || tab === "board" ? "flex" : "hidden lg:flex",
+            tab === "tree" || tab === "path" || tab === "board" || tab === "edit" ? "flex" : "hidden lg:flex",
           )}
         >
           <div className="hidden shrink-0 items-center gap-1 border-b px-3 py-1.5 lg:flex">
@@ -312,6 +321,7 @@ export function Visualizer() {
                 ["tree", "Tree"],
                 ["path", "Path"],
                 ["board", "Board"],
+                ["edit", "Edit"],
               ] as const
             ).map(([id, label]) => (
               <button
@@ -330,11 +340,31 @@ export function Visualizer() {
               </button>
             ))}
             <span className="ml-auto font-mono text-[11px] text-muted-foreground">
-              {center === "path" ? "pins · tree · kernel · userspace" : center === "board" ? "diagram · brief · memory map" : "nodes and labels"}
+              {center === "path"
+                ? "pins · tree · kernel · userspace"
+                : center === "board"
+                  ? "diagram · brief · memory map"
+                  : center === "edit"
+                    ? "propose · approve · save"
+                    : "nodes and labels"}
             </span>
           </div>
           <div className="min-h-0 flex-1">
-          {center === "board" ? (
+          {center === "edit" ? (
+          <EditPanel
+            source={source}
+            doc={doc}
+            brief={brief}
+            fileBase={fileBase}
+            saved={saved}
+            onSaved={setSaved}
+            onSource={(value) => {
+              setSource(value);
+              setExampleId(null);
+              setOriginNote(null);
+            }}
+          />
+          ) : center === "board" ? (
           <BoardPanel brief={brief} diagram={diagram} map={memoryMap} selectedPath={resolvedPath} onSelect={reveal} />
           ) : center === "tree" ? (
           <TreePanel
