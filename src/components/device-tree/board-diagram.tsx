@@ -23,7 +23,9 @@ export function BoardDiagramView({
   const zoomRef = useRef(1);
   const pan = useRef({ x: 0, y: 0, left: 0, top: 0, moved: false });
   const panned = useRef(false);
+  const resize = useRef<{ y: number; height: number } | null>(null);
   const [zoom, setZoom] = useState(1);
+  const [frameHeight, setFrameHeight] = useState<number | null>(null);
 
   useEffect(() => {
     zoomRef.current = zoom;
@@ -89,10 +91,10 @@ export function BoardDiagramView({
   }
 
   return (
-    <div className="overflow-hidden rounded-lg border bg-card">
+    <div className="relative overflow-hidden rounded-lg border bg-card">
       <div className="flex flex-wrap items-center justify-between gap-2 border-b px-2 py-1.5">
         <p className="text-[11px] text-muted-foreground">
-          Scroll left, right, up, and down. Ctrl and the wheel zooms.
+          Drag the corner to show more. Scroll to move. Ctrl and the wheel zooms.
         </p>
         <div className="flex items-center gap-1">
           <Button
@@ -126,6 +128,7 @@ export function BoardDiagramView({
         tabIndex={0}
         aria-label="Block diagram viewer"
         className="h-72 cursor-grab overflow-auto overscroll-contain outline-none select-none focus-visible:ring-2 focus-visible:ring-ring active:cursor-grabbing sm:h-80 lg:h-96"
+        style={frameHeight === null ? undefined : { height: frameHeight }}
         onKeyDown={(event) => {
           if (event.target !== scroller.current) return;
           const el = scroller.current;
@@ -297,11 +300,55 @@ export function BoardDiagramView({
           </svg>
         </div>
       </div>
-      <p className="border-t px-3 py-2 text-[11px] text-muted-foreground">
+      <p className="border-t px-3 py-2 pr-8 text-[11px] text-muted-foreground">
         Yellow blocks sit on the chip. Green blocks are parts on the board. A dashed block is switched off. Click a block to open it.
       </p>
+      <button
+        type="button"
+        aria-label="Resize diagram"
+        title="Drag the corner to show more of the picture"
+        className="absolute right-1.5 bottom-1.5 z-10 flex size-6 cursor-nwse-resize touch-none items-center justify-center rounded-md border bg-background/90 text-foreground shadow-sm"
+        onPointerDown={(event) => {
+          if (event.button !== 0) return;
+          event.preventDefault();
+          event.stopPropagation();
+          resize.current = {
+            y: event.clientY,
+            height: scroller.current?.getBoundingClientRect().height ?? 320,
+          };
+          event.currentTarget.setPointerCapture(event.pointerId);
+        }}
+        onPointerMove={(event) => {
+          const drag = resize.current;
+          if (!drag || !event.currentTarget.hasPointerCapture(event.pointerId)) return;
+          setFrameHeight(clampFrame(drag.height + event.clientY - drag.y));
+        }}
+        onPointerUp={(event) => {
+          if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+            event.currentTarget.releasePointerCapture(event.pointerId);
+          }
+          resize.current = null;
+        }}
+        onKeyDown={(event) => {
+          const current = scroller.current?.getBoundingClientRect().height ?? 320;
+          if (event.key === "ArrowDown" || event.key === "ArrowRight") setFrameHeight(clampFrame(current + 48));
+          else if (event.key === "ArrowUp" || event.key === "ArrowLeft") setFrameHeight(clampFrame(current - 48));
+          else return;
+          event.preventDefault();
+        }}
+      >
+        <svg width="14" height="14" viewBox="0 0 14 14" aria-hidden="true">
+          <path d="M12 3.5V12H3.5" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
+          <path d="M12 7.5V12H7.5" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
+        </svg>
+      </button>
     </div>
   );
+}
+
+function clampFrame(value: number): number {
+  const max = typeof window === "undefined" ? 900 : Math.max(480, window.innerHeight - 48);
+  return Math.round(Math.min(max, Math.max(180, value)));
 }
 
 function clampZoom(value: number): number {
