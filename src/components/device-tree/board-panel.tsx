@@ -1,16 +1,20 @@
 "use client";
 
+import { BoardDiagramView } from "@/components/device-tree/board-diagram";
 import type { BoardBrief } from "@/lib/dts/brief";
+import type { BoardDiagram } from "@/lib/dts/diagram";
 import { formatAddress, formatSize, type MapRegion, type MemoryMap } from "@/lib/dts/memory-map";
 import { cn } from "cn";
 
 export function BoardPanel({
   brief,
+  diagram,
   map,
   selectedPath,
   onSelect,
 }: {
   brief: BoardBrief;
+  diagram: BoardDiagram;
   map: MemoryMap;
   selectedPath: string;
   onSelect: (path: string) => void;
@@ -29,9 +33,11 @@ export function BoardPanel({
         <div>
           <h2 className="text-sm font-medium">Board</h2>
           <p className="text-xs text-muted-foreground">
-            Written from this tree. Pins, disabled nodes, and the projects that match what is actually switched on.
+            The chip in the middle, the parts wired to it, then what is on, off, and worth building.
           </p>
         </div>
+
+        <BoardDiagramView diagram={diagram} selectedPath={selectedPath} onSelect={onSelect} />
 
         <BriefBlock label="The board" text={brief.board} />
         <BriefBlock label="Pins" text={brief.pins} />

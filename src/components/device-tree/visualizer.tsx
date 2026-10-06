@@ -2,6 +2,7 @@
 
 import { defaultExpanded, indexDocument, type NodeFilter } from "@/lib/dts/analyze";
 import { summarizeBoard } from "@/lib/dts/brief";
+import { buildBoardDiagram } from "@/lib/dts/diagram";
 import { analyzeBringup } from "@/lib/dts/bringup";
 import { analyzeMemoryMap } from "@/lib/dts/memory-map";
 import { decompileDtb, isDtb } from "@/lib/dts/dtb";
@@ -43,6 +44,7 @@ export function Visualizer() {
   const board = useMemo(() => analyzeBringup(doc, index), [doc, index]);
   const memoryMap = useMemo(() => analyzeMemoryMap(doc), [doc]);
   const brief = useMemo(() => summarizeBoard(doc, board, memoryMap), [doc, board, memoryMap]);
+  const diagram = useMemo(() => buildBoardDiagram(doc, board, memoryMap), [doc, board, memoryMap]);
   const resolvedPath =
     selectedPath && index.byPath.has(selectedPath)
       ? selectedPath
@@ -328,12 +330,12 @@ export function Visualizer() {
               </button>
             ))}
             <span className="ml-auto font-mono text-[11px] text-muted-foreground">
-              {center === "path" ? "pins · tree · kernel · userspace" : center === "board" ? "brief · memory map" : "nodes and labels"}
+              {center === "path" ? "pins · tree · kernel · userspace" : center === "board" ? "diagram · brief · memory map" : "nodes and labels"}
             </span>
           </div>
           <div className="min-h-0 flex-1">
           {center === "board" ? (
-          <BoardPanel brief={brief} map={memoryMap} selectedPath={resolvedPath} onSelect={reveal} />
+          <BoardPanel brief={brief} diagram={diagram} map={memoryMap} selectedPath={resolvedPath} onSelect={reveal} />
           ) : center === "tree" ? (
           <TreePanel
             doc={doc}

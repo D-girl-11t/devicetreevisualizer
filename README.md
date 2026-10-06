@@ -1,6 +1,6 @@
 # Device Tree Visualizer
 
-Browse a device tree the way you read a board schematic. Paste source, open a `.dts` / `.dtsi` file, or drop a compiled `.dtb`. The tree is the parsed node hierarchy. The Path view turns that tree into a bring-up picture: pins, the kernel driver that would bind, and the userspace device a program would open. The Board view says what the file turns on, which pins are claimed, and which projects fit that description, then draws the RAM and register map. The inspector lists properties, labels, and the phandles that point at the node you select.
+Browse a device tree the way you read a board schematic. Paste source, open a `.dts` / `.dtsi` file, or drop a compiled `.dtb`. The tree is the parsed node hierarchy. The Path view turns that tree into a bring-up picture: pins, the kernel driver that would bind, and the userspace device a program would open. The Board view draws the chip: controllers inside the SoC, and the memories, sensors, and connectors around it. It also says what the file turns on, which pins are claimed, and which projects fit that description, then draws the RAM and register map. The inspector lists properties, labels, and the phandles that point at the node you select.
 
 Path is a prediction from the description, not a live `/dev` listing. `CONFIG_` symbols are the usual mainline options for that `compatible` string. A vendor-only compatible with no standard match is called out instead of invented.
 

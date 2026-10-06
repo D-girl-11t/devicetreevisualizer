@@ -1,6 +1,7 @@
 import { describe, expect, test } from "vitest";
 import { summarizeBoard } from "./brief";
 import { analyzeBringup } from "./bringup";
+import { buildBoardDiagram, layoutDiagram } from "./diagram";
 import { analyzeMemoryMap, formatAddress } from "./memory-map";
 import { parseDts } from "./parse";
 import { examples } from "./samples";
@@ -11,7 +12,7 @@ function view(id: string) {
   const doc = parseDts(example.source);
   const board = analyzeBringup(doc);
   const map = analyzeMemoryMap(doc);
-  return { doc, board, map, brief: summarizeBoard(doc, board, map) };
+  return { doc, board, map, brief: summarizeBoard(doc, board, map), diagram: buildBoardDiagram(doc, board, map) };
 }
 
 describe("memory map", () => {
@@ -74,6 +75,44 @@ describe("memory map", () => {
     const ram = wide.regions.find((region) => region.kind === "ram");
     expect(formatAddress(ram!.start!)).toBe("0x80000000");
     expect(ram?.size).toBe(0x40000000n);
+  });
+});
+
+describe("board diagram", () => {
+  test("draws Halcyon as a chip with board parts around it", () => {
+    const { diagram } = view("halcyon");
+    const cpu = diagram.nodes.find((node) => node.role === "cpu");
+    expect(cpu?.subtitle).toContain("2×");
+    expect(cpu?.side).toBe("inside");
+
+    const uart0 = diagram.nodes.find((node) => node.path === "/soc/serial@a40000");
+    const uart1 = diagram.nodes.find((node) => node.path === "/soc/serial@a41000");
+    expect(uart0?.enabled).toBe(false);
+    expect(uart0?.side).toBe("inside");
+    expect(uart1?.enabled).toBe(true);
+
+    const eeprom = diagram.nodes.find((node) => node.title === "EEPROM");
+    const flash = diagram.nodes.find((node) => node.title === "SPI flash");
+    const phy = diagram.nodes.find((node) => node.title === "Ethernet PHY");
+    const ram = diagram.nodes.find((node) => node.title === "DDR memory");
+    expect(eeprom?.side).toBe("left");
+    expect(flash?.side).toBe("left");
+    expect(phy?.side).toBe("top");
+    expect(ram?.side).toBe("right");
+
+    const i2c = diagram.nodes.find((node) => node.path === "/soc/i2c@a50000");
+    expect(diagram.edges).toContainEqual({ from: eeprom?.id, to: i2c?.id });
+    expect(diagram.edges.some((edge) => edge.from === ram?.id && edge.to === "cpu")).toBe(true);
+    expect(diagram.edges.some((edge) => edge.from === "leds" && edge.to === "/soc/gpio@a30000")).toBe(true);
+
+    const laid = layoutDiagram(diagram);
+    for (const node of laid.nodes) {
+      expect(node.x).toBeGreaterThanOrEqual(0);
+      expect(node.y).toBeGreaterThanOrEqual(0);
+      expect(node.x + node.w).toBeLessThanOrEqual(laid.width + 1);
+      expect(node.y + node.h).toBeLessThanOrEqual(laid.height + 1);
+    }
+    expect(laid.edges.length).toBe(diagram.edges.length);
   });
 });
 
