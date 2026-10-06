@@ -148,7 +148,7 @@ export function Inspector({
               <div key={`${property.name}-${property.line}`} className="grid grid-cols-[minmax(0,0.85fr)_minmax(0,1.15fr)] gap-2">
                 <dt
                   className={cn(
-                    "font-mono text-[12px] leading-5 break-all text-muted-foreground",
+                    "font-mono text-[12px] leading-5 break-words text-muted-foreground",
                     property.deleted && "line-through",
                   )}
                 >

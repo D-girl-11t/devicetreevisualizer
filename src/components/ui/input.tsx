@@ -2,7 +2,13 @@ import * as React from "react"
 import { Input as InputPrimitive } from "@base-ui/react/input"
 import { cn } from "cn"
 
-function Input({ className, type, ...props }: React.ComponentProps<"input">) {
+function Input({
+  className,
+  type,
+  ...props
+}: React.ComponentProps<"input"> & {
+  onValueChange?: (value: string) => void
+}) {
   return (
     <InputPrimitive
       type={type}

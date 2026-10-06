@@ -21,7 +21,7 @@ export function ValueView({
   }
 
   return (
-    <span className={cn("font-mono text-[12.5px] leading-5 break-all", deleted && "line-through")}>
+    <span className={cn("font-mono text-[12.5px] leading-5 break-words", deleted && "line-through")}>
       {parts.map((part, index) => (
         <span key={index}>
           {index > 0 ? <span className="text-muted-foreground">, </span> : null}

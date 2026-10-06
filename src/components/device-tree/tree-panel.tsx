@@ -98,7 +98,7 @@ export function TreePanel({
             <Search className="pointer-events-none absolute top-1/2 left-2 size-3.5 -translate-y-1/2 text-muted-foreground" />
             <Input
               value={query}
-              onChange={(event) => onQuery(event.target.value)}
+              onValueChange={onQuery}
               placeholder="Search name, label, compatible, property"
               aria-label="Search the device tree"
               className="pl-7"
@@ -157,6 +157,12 @@ export function TreePanel({
         role="tree"
         tabIndex={0}
         aria-label="Device tree"
+        onMouseDown={(event) => {
+          if (event.button !== 0) return;
+          const target = event.target;
+          if (target instanceof Element && target.closest("input, textarea, button, a, select")) return;
+          treeRef.current?.focus({ preventScroll: true });
+        }}
         onKeyDown={onKeyDown}
         className="min-h-0 flex-1 overflow-auto px-1.5 py-1.5 outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
       >
@@ -331,13 +337,17 @@ function flatten(
     filtering: boolean;
   },
 ): Row[] {
-  if (node.deleted && !options.showDeleted) return [];
-  const childList = node.children.filter((child) => options.showDeleted || !child.deleted);
+  const childList = node.children.filter(
+    (child) => options.showDeleted || !child.deleted || options.filtering,
+  );
   const hit = nodeMatches(node, options.query, options.filter);
+  const keptChildren = node.children.filter((child) => options.showDeleted || !child.deleted);
   if (!options.filtering && !options.expanded.has(node.path)) {
-    return [{ node, depth, hit: false, hasChildren: childList.length > 0 }];
+    if (node.deleted && !options.showDeleted) return [];
+    return [{ node, depth, hit: false, hasChildren: keptChildren.length > 0 }];
   }
   const children = childList.flatMap((child) => flatten(child, depth + 1, options));
+  if (node.deleted && !options.showDeleted && !hit && children.length === 0) return [];
   if (options.filtering && !hit && children.length === 0) return [];
-  return [{ node, depth, hit, hasChildren: childList.length > 0 }, ...children];
+  return [{ node, depth, hit, hasChildren: keptChildren.length > 0 }, ...children];
 }
