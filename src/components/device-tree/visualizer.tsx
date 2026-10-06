@@ -1,12 +1,15 @@
 "use client";
 
 import { defaultExpanded, indexDocument, type NodeFilter } from "@/lib/dts/analyze";
+import { summarizeBoard } from "@/lib/dts/brief";
 import { analyzeBringup } from "@/lib/dts/bringup";
+import { analyzeMemoryMap } from "@/lib/dts/memory-map";
 import { decompileDtb, isDtb } from "@/lib/dts/dtb";
 import { toJson } from "@/lib/dts/format";
 import { parseDts } from "@/lib/dts/parse";
 import { defaultExample, examples, type Example } from "@/lib/dts/samples";
 import type { DtRef } from "@/lib/dts/types";
+import { BoardPanel } from "@/components/device-tree/board-panel";
 import { BringupPanel } from "@/components/device-tree/bringup-panel";
 import { Inspector } from "@/components/device-tree/inspector";
 import { parentPath, TreePanel } from "@/components/device-tree/tree-panel";
@@ -16,8 +19,8 @@ import { cn } from "cn";
 import { Download, FoldVertical, Moon, Sun, UnfoldVertical } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 
-type Tab = "source" | "tree" | "path" | "node";
-type Center = "tree" | "path";
+type Tab = "source" | "tree" | "path" | "board" | "node";
+type Center = "tree" | "path" | "board";
 
 export function Visualizer() {
   const [source, setSource] = useState(defaultExample.source);
@@ -38,6 +41,8 @@ export function Visualizer() {
   const doc = useMemo(() => parseDts(source), [source]);
   const index = useMemo(() => indexDocument(doc), [doc]);
   const board = useMemo(() => analyzeBringup(doc, index), [doc, index]);
+  const memoryMap = useMemo(() => analyzeMemoryMap(doc), [doc]);
+  const brief = useMemo(() => summarizeBoard(doc, board, memoryMap), [doc, board, memoryMap]);
   const resolvedPath =
     selectedPath && index.byPath.has(selectedPath)
       ? selectedPath
@@ -238,12 +243,13 @@ export function Visualizer() {
         </div>
       </header>
 
-      <div className="flex shrink-0 gap-1 border-b px-3 py-1.5 lg:hidden">
+      <div className="flex shrink-0 gap-1 overflow-x-auto border-b px-3 py-1.5 lg:hidden">
         {(
           [
             ["source", "Source"],
             ["tree", "Tree"],
             ["path", "Path"],
+            ["board", "Board"],
             ["node", "Node"],
           ] as const
         ).map(([id, label]) => (
@@ -252,7 +258,7 @@ export function Visualizer() {
             type="button"
             onClick={() => {
               setTab(id);
-              if (id === "tree" || id === "path") setCenter(id);
+              if (id === "tree" || id === "path" || id === "board") setCenter(id);
             }}
             className={cn(
               "rounded-md px-2.5 py-1 text-sm",
@@ -292,12 +298,18 @@ export function Visualizer() {
             }}
           />
         </div>
-        <div className={cn("min-h-0 min-w-0 flex-1 flex-col", tab === "tree" || tab === "path" ? "flex" : "hidden lg:flex")}>
+        <div
+          className={cn(
+            "min-h-0 min-w-0 flex-1 flex-col",
+            tab === "tree" || tab === "path" || tab === "board" ? "flex" : "hidden lg:flex",
+          )}
+        >
           <div className="hidden shrink-0 items-center gap-1 border-b px-3 py-1.5 lg:flex">
             {(
               [
                 ["tree", "Tree"],
                 ["path", "Path"],
+                ["board", "Board"],
               ] as const
             ).map(([id, label]) => (
               <button
@@ -316,11 +328,13 @@ export function Visualizer() {
               </button>
             ))}
             <span className="ml-auto font-mono text-[11px] text-muted-foreground">
-              {center === "path" ? "pins · tree · kernel · userspace" : "nodes and labels"}
+              {center === "path" ? "pins · tree · kernel · userspace" : center === "board" ? "brief · memory map" : "nodes and labels"}
             </span>
           </div>
           <div className="min-h-0 flex-1">
-          {center === "tree" ? (
+          {center === "board" ? (
+          <BoardPanel brief={brief} map={memoryMap} selectedPath={resolvedPath} onSelect={reveal} />
+          ) : center === "tree" ? (
           <TreePanel
             doc={doc}
             selectedPath={resolvedPath}
