@@ -27,7 +27,7 @@ export function BoardDiagramView({
         viewBox={`0 0 ${laid.width} ${laid.height}`}
         role="img"
         aria-label="Block diagram of the chip and the parts on the board"
-        className="h-auto w-full min-w-[680px] text-foreground"
+        className="h-auto w-full min-w-[560px] text-foreground"
       >
         <defs>
           <marker id="dt-arrow" viewBox="0 0 8 8" markerWidth="7" markerHeight="7" refX="7" refY="4" orient="auto">

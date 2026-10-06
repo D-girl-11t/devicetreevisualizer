@@ -83,61 +83,123 @@ export function buildBoardDiagram(doc: DtDocument, board: BringupBoard, map: Mem
   return { socLabel: "System-on-chip", nodes, edges };
 }
 
+const ARROW = 36;
+
 export function layoutDiagram(diagram: BoardDiagram): PlacedDiagram {
   const inside = diagram.nodes.filter((node) => node.side === "inside");
-  const left = diagram.nodes.filter((node) => node.side === "left");
-  const right = diagram.nodes.filter((node) => node.side === "right");
-  const top = diagram.nodes.filter((node) => node.side === "top");
-  const bottom = diagram.nodes.filter((node) => node.side === "bottom");
+  const outside = diagram.nodes.filter((node) => node.side !== "inside");
+  const partnerOf = new Map(diagram.edges.map((edge) => [edge.from, edge.to]));
+  const groups = new Map<string, DiagramNode[]>();
+  const loose: DiagramNode[] = [];
+  for (const node of outside) {
+    const partner = partnerOf.get(node.id);
+    if (!partner || !inside.some((item) => item.id === partner)) {
+      loose.push(node);
+      continue;
+    }
+    const list = groups.get(partner) ?? [];
+    list.push(node);
+    groups.set(partner, list);
+  }
+  const sideOf = new Map<string, DiagramSide>();
+  for (const [insideId, members] of groups) sideOf.set(insideId, members[0].side);
 
-  const count = Math.max(inside.length, 1);
-  const cols = count <= 2 ? count : count <= 4 ? 2 : 4;
-  const rows = Math.max(1, Math.ceil(inside.length / cols));
-  const gridW = cols * BOX_W + Math.max(0, cols - 1) * GAP;
-  const gridH = rows * BOX_H + Math.max(0, rows - 1) * GAP;
-  const sideH = (items: DiagramNode[]) => (items.length === 0 ? 0 : items.length * BOX_H + (items.length - 1) * GAP);
+  const { rows, cols, slots } = arrange(inside, sideOf);
+  const rowH = Array.from({ length: rows }, (_, row) => {
+    let height = BOX_H;
+    for (let column = 0; column < cols; column += 1) {
+      const node = slots[row * cols + column];
+      if (!node) continue;
+      const side = sideOf.get(node.id);
+      const count = groups.get(node.id)?.length ?? 0;
+      if ((side === "left" && column === 0) || (side === "right" && column === cols - 1)) {
+        height = Math.max(height, stackExtent(count, BOX_H));
+      }
+    }
+    return height;
+  });
+  const colW = Array.from({ length: cols }, (_, column) => {
+    let width = BOX_W;
+    for (let row = 0; row < rows; row += 1) {
+      const node = slots[row * cols + column];
+      if (!node) continue;
+      const side = sideOf.get(node.id);
+      const count = groups.get(node.id)?.length ?? 0;
+      if ((side === "top" && row === 0) || (side === "bottom" && row === rows - 1)) {
+        width = Math.max(width, stackExtent(count, BOX_W));
+      }
+    }
+    return width;
+  });
 
-  const socW = gridW + 36;
-  const socH = Math.max(gridH + 46, sideH(left), sideH(right)) + 8;
-  const topH = top.length > 0 ? BOX_H + 28 : 18;
-  const bottomH = bottom.length > 0 ? BOX_H + 28 : 18;
-  const leftW = left.length > 0 ? BOX_W + 40 : 18;
-  const rightW = right.length > 0 ? BOX_W + 40 : 18;
-  const width = leftW + socW + rightW;
-  const height = topH + socH + bottomH;
-  const soc = { x: leftW, y: topH, w: socW, h: socH, label: diagram.socLabel };
+  const has = (side: DiagramSide) => outside.some((node) => node.side === side);
+  const leftMargin = has("left") ? 8 + BOX_W + ARROW : 22;
+  const topMargin = has("top") ? 8 + BOX_H + ARROW : 22;
+  const rowY: number[] = [];
+  let cursorY = topMargin;
+  for (const height of rowH) {
+    rowY.push(cursorY);
+    cursorY += height + GAP;
+  }
+  const colX: number[] = [];
+  let cursorX = leftMargin;
+  for (const width of colW) {
+    colX.push(cursorX);
+    cursorX += width + GAP;
+  }
+  const gridRight = colX[cols - 1] + colW[cols - 1];
+  const gridBottom = rowY[rows - 1] + rowH[rows - 1];
+  const soc = {
+    x: leftMargin - 14,
+    y: topMargin - 14,
+    w: gridRight - leftMargin + 28,
+    h: gridBottom - topMargin + 28 + 16,
+    label: diagram.socLabel,
+  };
 
   const placed = new Map<string, PlacedNode>();
-  const slots = placeInside(inside, rows, cols);
-  const originX = soc.x + (soc.w - gridW) / 2;
-  const originY = soc.y + 14 + (soc.h - 28 - gridH) / 2;
   slots.forEach((node, index) => {
     if (!node) return;
     const column = index % cols;
     const row = Math.floor(index / cols);
-    placed.set(node.id, {
+    const box: PlacedNode = {
       ...node,
-      x: originX + column * (BOX_W + GAP),
-      y: originY + row * (BOX_H + GAP),
+      x: colX[column] + (colW[column] - BOX_W) / 2,
+      y: rowY[row] + (rowH[row] - BOX_H) / 2,
       w: BOX_W,
       h: BOX_H,
+    };
+    placed.set(node.id, box);
+    const members = groups.get(node.id) ?? [];
+    const side = sideOf.get(node.id) ?? "left";
+    members.forEach((member, memberIndex) => {
+      placed.set(member.id, beside(box, member, side, memberIndex, members.length));
     });
   });
 
-  stack(left, 8, soc.y + (soc.h - sideH(left)) / 2, placed);
-  stack(right, soc.x + soc.w + 32, soc.y + (soc.h - sideH(right)) / 2, placed);
-  const topW = top.length * BOX_W + Math.max(0, top.length - 1) * GAP;
-  rowOf(top, soc.x + (soc.w - topW) / 2, 8, placed);
-  const bottomW = bottom.length * BOX_W + Math.max(0, bottom.length - 1) * GAP;
-  rowOf(bottom, soc.x + (soc.w - bottomW) / 2, soc.y + soc.h + 20, placed);
+  let lowest = soc.y + soc.h;
+  for (const node of placed.values()) lowest = Math.max(lowest, node.y + node.h);
+  let looseX = soc.x;
+  const looseY = lowest + GAP;
+  for (const node of loose) {
+    placed.set(node.id, { ...node, x: looseX, y: looseY, w: BOX_W, h: BOX_H });
+    looseX += BOX_W + GAP;
+  }
+
+  let width = soc.x + soc.w + (has("right") ? ARROW + BOX_W + 8 : 16);
+  let height = soc.y + soc.h + (has("bottom") || loose.length > 0 ? ARROW + BOX_H + 8 : 16);
+  for (const node of placed.values()) {
+    width = Math.max(width, node.x + node.w + 8);
+    height = Math.max(height, node.y + node.h + 8);
+  }
 
   const edges = diagram.edges.flatMap((edge) => {
     const from = placed.get(edge.from);
     const to = placed.get(edge.to);
     if (!from || !to) return [];
-    const start = borderPoint(from, centerOf(to));
-    const end = borderPoint(to, centerOf(from));
-    return [{ ...edge, x1: start.x, y1: start.y, x2: end.x, y2: end.y }];
+    const side = from.side === "inside" ? to.side : from.side;
+    const stub = shortStub(from, to, side);
+    return [{ ...edge, ...stub }];
   });
 
   return { width, height, soc, nodes: [...placed.values()], edges };
@@ -349,48 +411,89 @@ function parentOf(path: string): string | null {
   return path.slice(0, cut);
 }
 
-function placeInside(nodes: DiagramNode[], rows: number, cols: number): (DiagramNode | null)[] {
+function arrange(
+  inside: DiagramNode[],
+  sideOf: Map<string, DiagramSide>,
+): { rows: number; cols: number; slots: (DiagramNode | null)[] } {
+  const on = (side: DiagramSide) => inside.filter((node) => sideOf.get(node.id) === side);
+  const left = on("left");
+  const right = on("right");
+  const top = on("top");
+  const bottom = on("bottom");
+  const pinned = new Set([...left, ...right, ...top, ...bottom].map((node) => node.id));
+  const rest = inside.filter((node) => !pinned.has(node.id));
+  const count = Math.max(inside.length, 1);
+  let cols = count <= 2 ? count : count <= 4 ? 2 : 4;
+  let rows = Math.max(1, Math.ceil(count / cols), left.length, right.length);
+  cols = Math.max(cols, top.length, bottom.length, 1);
+  while (rows * cols < count) rows += 1;
+
   const slots: (DiagramNode | null)[] = Array(rows * cols).fill(null);
-  const cpu = nodes.find((node) => node.role === "cpu");
-  const rest = nodes.filter((node) => node.role !== "cpu");
+  left.forEach((node, index) => {
+    slots[Math.min(index, rows - 1) * cols] = node;
+  });
+  right.forEach((node, index) => {
+    slots[Math.min(index, rows - 1) * cols + cols - 1] = node;
+  });
+  let topColumn = 0;
+  for (const node of top) {
+    while (topColumn < cols && slots[topColumn]) topColumn += 1;
+    if (topColumn < cols) slots[topColumn] = node;
+    else fillFirstFree(slots, node);
+  }
+  let bottomColumn = 0;
+  for (const node of bottom) {
+    while (bottomColumn < cols && slots[(rows - 1) * cols + bottomColumn]) bottomColumn += 1;
+    if (bottomColumn < cols) slots[(rows - 1) * cols + bottomColumn] = node;
+    else fillFirstFree(slots, node);
+  }
+  const cpu = rest.find((node) => node.role === "cpu");
+  const others = rest.filter((node) => node !== cpu);
   if (cpu) {
     const center = Math.floor((rows - 1) / 2) * cols + Math.floor((cols - 1) / 2);
-    slots[center] = cpu;
+    if (!slots[center]) slots[center] = cpu;
+    else fillFirstFree(slots, cpu);
   }
-  let cursor = 0;
-  for (const node of rest) {
-    while (cursor < slots.length && slots[cursor]) cursor += 1;
-    if (cursor < slots.length) slots[cursor] = node;
+  for (const node of others) fillFirstFree(slots, node);
+  return { rows, cols, slots };
+}
+
+function fillFirstFree(slots: (DiagramNode | null)[], node: DiagramNode) {
+  const index = slots.indexOf(null);
+  if (index >= 0) slots[index] = node;
+}
+
+function stackExtent(count: number, item: number): number {
+  if (count <= 1) return item;
+  return count * item + (count - 1) * 8;
+}
+
+function beside(box: PlacedNode, member: DiagramNode, side: DiagramSide, index: number, count: number): PlacedNode {
+  if (side === "top" || side === "bottom") {
+    const span = stackExtent(count, BOX_W);
+    const start = box.x + box.w / 2 - span / 2;
+    const y = side === "top" ? box.y - ARROW - BOX_H : box.y + box.h + ARROW;
+    return { ...member, x: start + index * (BOX_W + 8), y, w: BOX_W, h: BOX_H };
   }
-  return slots;
+  const span = stackExtent(count, BOX_H);
+  const start = box.y + box.h / 2 - span / 2;
+  const x = side === "left" ? box.x - ARROW - BOX_W : box.x + box.w + ARROW;
+  return { ...member, x, y: start + index * (BOX_H + 8), w: BOX_W, h: BOX_H };
 }
 
-function stack(nodes: DiagramNode[], x: number, y: number, placed: Map<string, PlacedNode>) {
-  nodes.forEach((node, index) => {
-    placed.set(node.id, { ...node, x, y: y + index * (BOX_H + GAP), w: BOX_W, h: BOX_H });
-  });
-}
-
-function rowOf(nodes: DiagramNode[], x: number, y: number, placed: Map<string, PlacedNode>) {
-  nodes.forEach((node, index) => {
-    placed.set(node.id, { ...node, x: x + index * (BOX_W + GAP), y, w: BOX_W, h: BOX_H });
-  });
-}
-
-function centerOf(node: PlacedNode): { x: number; y: number } {
-  return { x: node.x + node.w / 2, y: node.y + node.h / 2 };
-}
-
-function borderPoint(box: PlacedNode, toward: { x: number; y: number }): { x: number; y: number } {
-  const cx = box.x + box.w / 2;
-  const cy = box.y + box.h / 2;
-  const dx = toward.x - cx;
-  const dy = toward.y - cy;
-  if (dx === 0 && dy === 0) return { x: cx, y: cy };
-  const scaleX = dx === 0 ? Number.POSITIVE_INFINITY : box.w / 2 / Math.abs(dx);
-  const scaleY = dy === 0 ? Number.POSITIVE_INFINITY : box.h / 2 / Math.abs(dy);
-  const scale = Math.min(scaleX, scaleY);
-  return { x: cx + dx * scale, y: cy + dy * scale };
+function shortStub(from: PlacedNode, to: PlacedNode, side: DiagramSide): { x1: number; y1: number; x2: number; y2: number } {
+  const outer = from.side === "inside" ? to : from;
+  const inner = from.side === "inside" ? from : to;
+  if (side === "left") {
+    return { x1: outer.x + outer.w, y1: outer.y + outer.h / 2, x2: inner.x, y2: inner.y + inner.h / 2 };
+  }
+  if (side === "right") {
+    return { x1: outer.x, y1: outer.y + outer.h / 2, x2: inner.x + inner.w, y2: inner.y + inner.h / 2 };
+  }
+  if (side === "top") {
+    return { x1: outer.x + outer.w / 2, y1: outer.y + outer.h, x2: inner.x + inner.w / 2, y2: inner.y };
+  }
+  return { x1: outer.x + outer.w / 2, y1: outer.y, x2: inner.x + inner.w / 2, y2: inner.y + inner.h };
 }
 
 function clip(text: string): string {

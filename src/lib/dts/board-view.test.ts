@@ -113,6 +113,20 @@ describe("board diagram", () => {
       expect(node.y + node.h).toBeLessThanOrEqual(laid.height + 1);
     }
     expect(laid.edges.length).toBe(diagram.edges.length);
+    const eepromBox = laid.nodes.find((node) => node.title === "EEPROM");
+    const i2cBox = laid.nodes.find((node) => node.path === "/soc/i2c@a50000");
+    const eepromEdge = laid.edges.find((edge) => edge.from === eeprom?.id);
+    expect(i2cBox && eepromBox && eepromEdge).toBeTruthy();
+    expect(i2cBox!.x - (eepromBox!.x + eepromBox!.w)).toBeLessThan(48);
+    const span = Math.hypot(eepromEdge!.x2 - eepromEdge!.x1, eepromEdge!.y2 - eepromEdge!.y1);
+    expect(span).toBeLessThan(80);
+    const cpuBox = laid.nodes.find((node) => node.role === "cpu");
+    const ramBox = laid.nodes.find((node) => node.title === "DDR memory");
+    expect(ramBox && cpuBox).toBeTruthy();
+    expect(ramBox!.x - (cpuBox!.x + cpuBox!.w)).toBeLessThan(48);
+    for (const edge of laid.edges) {
+      expect(Math.hypot(edge.x2 - edge.x1, edge.y2 - edge.y1)).toBeLessThan(90);
+    }
   });
 });
 
