@@ -1,7 +1,7 @@
 import { describe, expect, test } from "vitest";
 import { compileDtb } from "./compile";
 import { decompileDtb } from "./dtb";
-import { proposeEdits } from "./edits";
+import { designChecklist, fillGap, MINIMUM_TEMPLATE, proposeEdits, proposeRemoval } from "./edits";
 import { propertyByName, stringValues } from "./format";
 import { parseDts } from "./parse";
 import { storeTree, type SavedTree } from "./saved";
@@ -27,6 +27,55 @@ describe("guided edits", () => {
     expect(next).toContain('compatible = "ti,tmp102"');
     expect(next).toContain("reg = <0x49>");
     expect(findName(parsed.root, "temp@48")).toBeTruthy();
+  });
+
+  test("starts from a template that meets the minimum", () => {
+    const doc = parseDts(MINIMUM_TEMPLATE);
+    expect(doc.errors).toEqual([]);
+    expect(designChecklist(doc).every((item) => item.met)).toBe(true);
+  });
+
+  test("adds one typed line under soc, and two steps when soc is missing", () => {
+    const doc = parseDts(MINIMUM_TEMPLATE);
+    const plan = proposeEdits("uart0: serial@a01000", doc);
+    expect(plan.edits).toHaveLength(1);
+    const next = plan.edits[0].apply(MINIMUM_TEMPLATE);
+    const uart = findName(parseDts(next).root, "serial@a01000");
+    expect(uart?.path).toBe("/soc/serial@a01000");
+    expect(uart?.labels).toContain("uart0");
+
+    const bare = parseDts("/dts-v1/;\n\n/ {\n    model = \"Bare\";\n};\n");
+    const added = proposeEdits("serial@a01000", bare);
+    expect(added.edits).toHaveLength(2);
+    const source = added.edits.reduce((text, edit) => edit.apply(text), bare.root ? "/dts-v1/;\n\n/ {\n    model = \"Bare\";\n};\n" : "");
+    const parsed = parseDts(source);
+    expect(parsed.errors).toEqual([]);
+    expect(findName(parsed.root, "serial@a01000")?.path).toBe("/soc/serial@a01000");
+  });
+
+  test("sets a property from one line and removes a node", () => {
+    const doc = parseDts(halcyon.source);
+    const renamed = proposeEdits('model = "Pocket board"', doc);
+    expect(renamed.edits).toHaveLength(1);
+    expect(renamed.edits[0].apply(halcyon.source)).toContain('model = "Pocket board"');
+
+    const removed = proposeRemoval(doc, "uart0");
+    expect(removed.edits).toHaveLength(1);
+    const next = parseDts(removed.edits[0].apply(halcyon.source));
+    expect(findName(next.root, "serial@a40000")).toBeNull();
+    expect(findName(next.root, "serial@a41000")).toBeTruthy();
+  });
+
+  test("fills a missing CPU without replacing the rest of the file", () => {
+    const source = "/dts-v1/;\n\n/ {\n    model = \"Bare\";\n    compatible = \"vendor,bare\";\n    #address-cells = <1>;\n    #size-cells = <1>;\n};\n";
+    const doc = parseDts(source);
+    expect(designChecklist(doc).find((item) => item.id === "cpu")?.met).toBe(false);
+    const plan = fillGap("cpu", doc);
+    expect(plan.edits).toHaveLength(1);
+    const next = parseDts(plan.edits[0].apply(source));
+    expect(next.errors).toEqual([]);
+    expect(findName(next.root, "cpu@0")).toBeTruthy();
+    expect(next.root && stringValues(propertyByName(next.root, "model"))).toEqual(["Bare"]);
   });
 
   test("enables uart0 through its alias", () => {

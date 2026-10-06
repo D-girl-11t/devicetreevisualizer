@@ -5,7 +5,7 @@ import { Input } from "@/components/ui/input";
 import type { BoardBrief } from "@/lib/dts/brief";
 import { descriptionFile } from "@/lib/dts/brief";
 import { compileDtb } from "@/lib/dts/compile";
-import { changedLines, proposeEdits, type TreeEdit } from "@/lib/dts/edits";
+import { changedLines, designChecklist, designNodes, fillGap, proposeEdits, proposeRemoval, type EditPlan, type TreeEdit } from "@/lib/dts/edits";
 import { SAVED_LIMIT, dropTree, storeTree, type SavedTree } from "@/lib/dts/saved";
 import type { DtDocument } from "@/lib/dts/types";
 import { cn } from "cn";
@@ -44,7 +44,7 @@ export function EditPanel({
   onSaved: (trees: SavedTree[]) => void;
   onSource: (source: string) => void;
 }) {
-  const [request, setRequest] = useState("Add a temperature sensor connected externally");
+  const [request, setRequest] = useState("serial@a01000");
   const [steps, setSteps] = useState<TreeEdit[]>([]);
   const [note, setNote] = useState<string | null>(null);
   const [proposed, setProposed] = useState(false);
@@ -52,11 +52,14 @@ export function EditPanel({
   const [saveError, setSaveError] = useState<string | null>(null);
   const [fileError, setFileError] = useState<string | null>(null);
 
-  function propose() {
-    const plan = proposeEdits(request, doc);
+  function show(plan: EditPlan) {
     setSteps(plan.edits);
     setNote(plan.note);
     setProposed(true);
+  }
+
+  function propose() {
+    show(proposeEdits(request, doc));
   }
 
   function approve(step: TreeEdit) {
@@ -91,17 +94,42 @@ export function EditPanel({
         <div>
           <h2 className="text-sm font-medium">Edit</h2>
           <p className="text-xs text-muted-foreground">
-            Describe a change. Each edit is shown on its own. Approve one, or approve all of them.
+            A board file needs /dts-v1/;, a root, model, compatible, address cells, one CPU, memory, and a console. Add what is missing, start from the template, remove a node, or type one line.
           </p>
         </div>
+
+        {designChecklist(doc).some((item) => !item.met) ? (
+          <ul className="flex flex-col gap-1.5">
+            {designChecklist(doc)
+              .filter((item) => !item.met)
+              .map((item) => (
+                <li key={item.id} className="flex items-start justify-between gap-2 rounded-md border px-2.5 py-1.5">
+                  <div className="min-w-0">
+                    <p className="text-sm">{item.title}</p>
+                    <p className="text-[11px] text-muted-foreground">{item.detail}</p>
+                  </div>
+                  <Button type="button" size="xs" variant="secondary" onClick={() => show(fillGap(item.id, doc))}>
+                    Add
+                  </Button>
+                </li>
+              ))}
+          </ul>
+        ) : (
+          <p className="text-xs text-[var(--dt-ok)]">
+            This file already has the version line, root, model, compatible, address cells, a CPU, memory, and a console.
+          </p>
+        )}
+        <Button type="button" size="sm" variant="outline" onClick={() => show(proposeEdits("start from the template", doc))}>
+          Start from the template
+        </Button>
 
         <div className="flex flex-col gap-2">
           <textarea
             value={request}
             onChange={(event) => setRequest(event.target.value)}
-            rows={3}
+            rows={2}
             aria-label="Describe the device tree change"
-            placeholder="Add a temperature sensor connected externally"
+            placeholder="serial@a01000"
             className="w-full resize-y rounded-lg border border-input bg-transparent px-2.5 py-2 text-sm outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50"
           />
           <div className="flex flex-wrap gap-2">
@@ -131,6 +159,26 @@ export function EditPanel({
             onSkip={() => setSteps((current) => current.filter((item) => item.id !== step.id))}
           />
         ))}
+
+        <div className="flex flex-col gap-2">
+          <h3 className="text-sm font-medium">In this file</h3>
+          {designNodes(doc).length === 0 ? (
+            <p className="text-xs text-muted-foreground">No nodes yet. Start from the template, then add a line.</p>
+          ) : (
+            <ul className="flex max-h-64 flex-col gap-1 overflow-y-auto">
+              {designNodes(doc).map((node) => (
+                <li key={node.path} className="flex items-center gap-2 rounded-md border px-2 py-1">
+                  <span className="min-w-0 flex-1 truncate font-mono text-[12px]" title={node.path}>
+                    {node.title}
+                  </span>
+                  <Button type="button" size="xs" variant="ghost" onClick={() => show(proposeRemoval(doc, node.path))}>
+                    Remove
+                  </Button>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
 
         <div className="flex flex-col gap-3 border-t pt-3">
           <div>

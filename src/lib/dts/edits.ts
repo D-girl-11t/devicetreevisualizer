@@ -16,12 +16,141 @@ export type EditPlan = {
 };
 
 const HELP =
-  "Try “Add a temperature sensor connected externally”, “Add an EEPROM on i2c1”, “Add a status LED”, or “Enable uart0”.";
+  "Type one line, such as model = \"New board\" or uart0: serial@a01000. Remove a node with “remove serial0”. Or try “Add a temperature sensor connected externally”, “Add an EEPROM on i2c1”, “Add a status LED”, or “Enable uart0”.";
+
+export const MINIMUM_TEMPLATE = `/dts-v1/;
+
+/ {
+    model = "New board";
+    compatible = "vendor,board";
+    #address-cells = <1>;
+    #size-cells = <1>;
+
+    cpus {
+        #address-cells = <1>;
+        #size-cells = <0>;
+
+        cpu@0 {
+            device_type = "cpu";
+            compatible = "arm,cortex-a53";
+            reg = <0>;
+        };
+    };
+
+    memory@80000000 {
+        device_type = "memory";
+        reg = <0x80000000 0x40000000>;
+    };
+
+    chosen {
+        stdout-path = "serial0:115200n8";
+    };
+
+    soc {
+        compatible = "simple-bus";
+        #address-cells = <1>;
+        #size-cells = <1>;
+        ranges;
+    };
+};
+`;
+
+export type DesignNeed = {
+  id: string;
+  title: string;
+  detail: string;
+  met: boolean;
+};
+
+export function designChecklist(doc: DtDocument): DesignNeed[] {
+  const root = doc.root;
+  const chosen = root?.children.find((node) => !node.deleted && node.name === "chosen") ?? null;
+  return [
+    { id: "version", title: "/dts-v1/;", detail: "The file starts with the version line.", met: doc.hasVersion },
+    { id: "root", title: "Root node", detail: "Everything else lives inside / { }.", met: Boolean(root) },
+    { id: "model", title: "model", detail: "A name for this board.", met: Boolean(root && propertyByName(root, "model")) },
+    { id: "compatible", title: "compatible", detail: "The strings the kernel matches to a board.", met: Boolean(root && propertyByName(root, "compatible")) },
+    {
+      id: "cells",
+      title: "Address cells",
+      detail: "#address-cells and #size-cells tell children how to read reg.",
+      met: Boolean(root && propertyByName(root, "#address-cells") && propertyByName(root, "#size-cells")),
+    },
+    { id: "cpu", title: "One CPU", detail: "A cpus node with at least one cpu.", met: hasCpu(root) },
+    { id: "memory", title: "Memory", detail: "A memory node with the RAM window.", met: hasMemory(root) },
+    {
+      id: "console",
+      title: "Console",
+      detail: "chosen stdout-path names the serial port used for boot messages.",
+      met: Boolean(chosen && propertyByName(chosen, "stdout-path")),
+    },
+  ];
+}
+
+export function designNodes(doc: DtDocument): { path: string; title: string }[] {
+  if (!doc.root) return [];
+  const listed: { path: string; title: string }[] = [];
+  const visit = (node: DtNode, depth: number) => {
+    if (node.deleted || node.path === "/") return;
+    listed.push({
+      path: node.path,
+      title: node.labels.length > 0 ? `${node.labels[0]} · ${node.fullName}` : node.fullName,
+    });
+    if (depth >= 3) return;
+    for (const child of node.children) visit(child, depth + 1);
+  };
+  for (const child of doc.root.children) visit(child, 1);
+  return listed;
+}
+
+export function fillGap(id: string, doc: DtDocument): EditPlan {
+  if (!doc.root && id !== "version") {
+    return templatePlan();
+  }
+  switch (id) {
+    case "version":
+      return doc.hasVersion
+        ? { edits: [], note: "The version line is already there." }
+        : {
+            edits: [
+              {
+                id: "gap-version",
+                title: "Add /dts-v1/;",
+                detail: "Put the version line at the top of the file.",
+                apply: (source) => (source.startsWith("/dts-v1/") ? source : `/dts-v1/;\n\n${source}`),
+              },
+            ],
+            note: null,
+          };
+    case "root":
+      return templatePlan();
+    case "model":
+      return propertyEdit(doc, "/", "model", 'model = "New board"', "Name the board.");
+    case "compatible":
+      return propertyEdit(doc, "/", "compatible", 'compatible = "vendor,board"', "Name the board binding.");
+    case "cells":
+      return cellsEdit(doc);
+    case "cpu":
+      return cpuEdit(doc);
+    case "memory":
+      return nodeEdit(doc, "/", "memory@80000000", undefined, "Describe the RAM window.");
+    case "console":
+      return consoleEdit(doc);
+    default:
+      return { edits: [], note: HELP };
+  }
+}
 
 export function proposeEdits(request: string, doc: DtDocument): EditPlan {
-  const text = request.trim().toLowerCase().replace(/\s+/g, " ");
+  const raw = request.trim();
+  const text = raw.toLowerCase().replace(/\s+/g, " ");
   if (!text) return { edits: [], note: HELP };
-  if (!doc.root) return { edits: [], note: "The source has no root node yet." };
+  if (/^(start from( the)? template|use the minimum template|new board from template)$/.test(text)) {
+    return templatePlan();
+  }
+  if (/^remove\s+/.test(text)) return proposeRemoval(doc, raw.replace(/^remove\s+/i, ""));
+  if (looksLikeLine(raw)) return proposeLine(raw, doc);
+  if (!doc.root) return { edits: [], note: "The source has no root node yet. Start from the template." };
 
   if (/(temp|temperature|thermal)/.test(text) && /(add|connect|attach|sensor)/.test(text)) {
     return temperaturePlan(doc, text);
@@ -66,6 +195,224 @@ export function changedLines(before: string, after: string): DiffLine[] {
     hunk.push(line);
   });
   return hunk;
+}
+
+export function proposeLine(request: string, doc: DtDocument): EditPlan {
+  const raw = request.trim().replace(/^(add|insert)\s+/i, "");
+  if (!doc.root) return { edits: [], note: "The source has no root node yet. Start from the template." };
+  if (/^remove\s+/i.test(request.trim())) return proposeRemoval(doc, request.trim().replace(/^remove\s+/i, ""));
+
+  const property = raw.match(/^([#A-Za-z_][\w,.-]*)\s*=\s*([\s\S]+?)\s*;?$/);
+  if (property && !raw.includes("{")) {
+    return placeProperty(doc, property[1], `${property[1]} = ${property[2].trim().replace(/;$/, "")}`);
+  }
+  const flag = raw.match(/^([#A-Za-z_][\w,.-]*)\s*;$/);
+  if (flag) return placeProperty(doc, flag[1], `${flag[1]};`);
+
+  const node = splitNode(raw);
+  if (!node) return { edits: [], note: HELP };
+  return nodeEdit(doc, parentPath(doc, node.name), node.name, node.label, `Add ${node.label ? `${node.label}: ` : ""}${node.name} from the line you typed.`, node.body);
+}
+
+export function proposeRemoval(doc: DtDocument, query: string): EditPlan {
+  if (!doc.root) return { edits: [], note: "The source has no root node yet." };
+  const node = resolveQuery(doc, query);
+  if (!node) return { edits: [], note: `No node matches “${query.trim()}”. Use a label, alias, or node name.` };
+  if (node.path === "/") return { edits: [], note: "The root stays. Remove a node inside it." };
+  const name = node.labels[0] ?? node.fullName;
+  return {
+    edits: [
+      {
+        id: `remove-${node.path}`,
+        title: `Remove ${name}`,
+        detail: `Delete ${node.path} from the file. An alias that still names it is left in place.`,
+        apply: (source) => deleteNode(source, node.path),
+      },
+    ],
+    note: null,
+  };
+}
+
+function templatePlan(): EditPlan {
+  return {
+    edits: [
+      {
+        id: "template",
+        title: "Start from the minimum template",
+        detail: "Replace the open file with /dts-v1/;, a root, one CPU, memory, a console, and an empty soc.",
+        apply: () => MINIMUM_TEMPLATE,
+      },
+    ],
+    note: null,
+  };
+}
+
+function looksLikeLine(raw: string): boolean {
+  const text = raw.trim();
+  if (text.includes("\n") && !text.includes("{")) return false;
+  if (/^(add|insert)\s+/i.test(text)) return looksLikeLine(text.replace(/^(add|insert)\s+/i, ""));
+  return text.includes("=") || text.includes("@") || text.includes("{") || text.endsWith(";") || /^[A-Za-z_][\w-]*(\s*:\s*[A-Za-z_][\w-]*)?$/.test(text);
+}
+
+function placeProperty(doc: DtDocument, name: string, statement: string): EditPlan {
+  if (name === "stdout-path" || name === "bootargs") {
+    const chosen = doc.root?.children.find((node) => !node.deleted && node.name === "chosen");
+    if (!chosen) {
+      return nodeEdit(doc, "/", "chosen", undefined, `Add chosen with ${name}.`, `${statement};`.replace(/;;$/, ";"));
+    }
+    return propertyEdit(doc, chosen.path, name, statement, `Set ${name} on chosen.`);
+  }
+  return propertyEdit(doc, "/", name, statement, `Set ${name} on the root.`);
+}
+
+function propertyEdit(doc: DtDocument, path: string, name: string, statement: string, detail: string): EditPlan {
+  if (!doc.root) return { edits: [], note: "The source has no root node yet. Start from the template." };
+  return {
+    edits: [
+      {
+        id: `prop-${path}-${name}`,
+        title: `Set ${name}`,
+        detail,
+        apply: (source) => upsertProperty(source, path, name, statement),
+      },
+    ],
+    note: null,
+  };
+}
+
+function cellsEdit(doc: DtDocument): EditPlan {
+  const edits: TreeEdit[] = [];
+  if (!propertyByName(doc.root!, "#address-cells")) {
+    edits.push({
+      id: "gap-address-cells",
+      title: "Set #address-cells",
+      detail: "Children read the first cell of reg as an address.",
+      apply: (source) => upsertProperty(source, "/", "#address-cells", "#address-cells = <1>"),
+    });
+  }
+  if (!propertyByName(doc.root!, "#size-cells")) {
+    edits.push({
+      id: "gap-size-cells",
+      title: "Set #size-cells",
+      detail: "Children read the following cells of reg as a size.",
+      apply: (source) => upsertProperty(source, "/", "#size-cells", "#size-cells = <1>"),
+    });
+  }
+  return edits.length > 0 ? { edits, note: null } : { edits: [], note: "Address cells are already set." };
+}
+
+function cpuEdit(doc: DtDocument): EditPlan {
+  const cpus = doc.root?.children.find((node) => !node.deleted && node.name === "cpus");
+  if (!cpus) return nodeEdit(doc, "/", "cpus", undefined, "Add a cpus node with one CPU.", defaultBody("cpus") + "\n\n    cpu@0 {\n        device_type = \"cpu\";\n        compatible = \"arm,cortex-a53\";\n        reg = <0>;\n    };");
+  return nodeEdit(doc, cpus.path, "cpu@0", undefined, "Add cpu@0 under cpus.");
+}
+
+function consoleEdit(doc: DtDocument): EditPlan {
+  const chosen = doc.root?.children.find((node) => !node.deleted && node.name === "chosen");
+  if (!chosen) return nodeEdit(doc, "/", "chosen", undefined, "Add a chosen console.");
+  return propertyEdit(doc, chosen.path, "stdout-path", 'stdout-path = "serial0:115200n8"', "Name the boot console.");
+}
+
+function nodeEdit(doc: DtDocument, parent: string, fullName: string, label: string | undefined, detail: string, body?: string): EditPlan {
+  if (!doc.root) return { edits: [], note: "The source has no root node yet. Start from the template." };
+  const parentNode = parent === "/" ? doc.root : findPath(doc.root, parent);
+  if (parentNode?.children.some((child) => !child.deleted && child.fullName === fullName)) {
+    return { edits: [], note: `${fullName} is already in ${parent === "/" ? "the root" : parent}.` };
+  }
+  if (label && findLabel(doc.root, label)) {
+    return { edits: [], note: `The label ${label} is already in this file. Pick another label, or type the node name alone.` };
+  }
+  const edits: TreeEdit[] = [];
+  let target = parent;
+  if (parent === "/soc" && !findPath(doc.root, "/soc")) {
+    edits.push({
+      id: "add-soc",
+      title: "Add an soc bus",
+      detail: "On-chip devices sit on soc so their reg values share one address map.",
+      apply: (source) => insertChild(source, "/", nodeBlock(undefined, "soc", undefined)),
+    });
+    target = "/soc";
+  }
+  const heading = label ? `${label}: ${fullName}` : fullName;
+  edits.push({
+    id: `add-${target}-${fullName}`,
+    title: `Add ${heading}`,
+    detail,
+    apply: (source) => insertChild(source, target, nodeBlock(label, fullName, body)),
+  });
+  return { edits, note: null };
+}
+
+function parentPath(doc: DtDocument, fullName: string): string {
+  const name = fullName.split("@")[0] ?? fullName;
+  if (["chosen", "aliases", "cpus", "memory", "soc", "reserved-memory", "leds", "gpio-keys"].includes(name) || name.startsWith("memory") || name.startsWith("reserved")) {
+    return "/";
+  }
+  if (name === "cpu" || name.startsWith("cpu")) {
+    const cpus = doc.root?.children.find((node) => !node.deleted && node.name === "cpus");
+    return cpus?.path ?? "/";
+  }
+  if (/flash|nor|nand|mtd/.test(name)) {
+    const spi = findFirst(doc.root!, (node) => node.name.startsWith("spi") && Boolean(propertyByName(node, "#address-cells")));
+    if (spi?.path) return spi.path;
+  }
+  if (!/^(serial|uart|i2c|spi|mmc|gpio|ethernet|usb|pwm|can|adc|timer|intc|interrupt-controller)$/.test(name) && fullName.includes("@")) {
+    const i2c = i2cBuses(doc.root)[0];
+    if (i2c?.path) return i2c.path;
+  }
+  const soc = doc.root?.children.find((node) => !node.deleted && node.name === "soc");
+  if (soc) return "/soc";
+  if (/^(serial|uart|i2c|spi|mmc|gpio|ethernet|usb)$/.test(name)) return "/soc";
+  return "/";
+}
+
+function splitNode(raw: string): { label?: string; name: string; body?: string } | null {
+  const brace = raw.indexOf("{");
+  const head = (brace >= 0 ? raw.slice(0, brace) : raw).trim().replace(/;$/, "");
+  const match = head.match(/^(?:([A-Za-z_][\w-]*)\s*:\s*)?([A-Za-z_][\w-]*)(?:@([0-9A-Za-z]+))?$/);
+  if (!match) return null;
+  const name = match[3] ? `${match[2]}@${match[3]}` : match[2];
+  if (brace < 0) return { label: match[1], name };
+  const end = raw.lastIndexOf("}");
+  if (end <= brace) return null;
+  return { label: match[1], name, body: raw.slice(brace, end + 1).trim() };
+}
+
+function nodeBlock(label: string | undefined, fullName: string, body: string | undefined): string {
+  const head = `${label ? `${label}: ` : ""}${fullName}`;
+  if (body?.trim().startsWith("{")) return `${head} ${body.trim()}`;
+  const inner = (body ?? defaultBody(fullName)).trim();
+  return `${head} {\n    ${inner.replaceAll("\n", "\n    ")}\n};`;
+}
+
+function defaultBody(fullName: string): string {
+  const at = fullName.indexOf("@");
+  const name = at >= 0 ? fullName.slice(0, at) : fullName;
+  const unit = at >= 0 ? fullName.slice(at + 1) : null;
+  const addr = unit === null ? null : unit.startsWith("0x") ? unit : `0x${unit}`;
+  if (name === "cpu") return `device_type = "cpu";\n    compatible = "arm,cortex-a53";\n    reg = <${unit ?? "0"}>;`;
+  if (name === "memory") return `device_type = "memory";\n    reg = <${addr ?? "0x80000000"} 0x40000000>;`;
+  if (name === "chosen") return `stdout-path = "serial0:115200n8";`;
+  if (name === "cpus") return `#address-cells = <1>;\n    #size-cells = <0>;`;
+  if (name === "soc") return `compatible = "simple-bus";\n    #address-cells = <1>;\n    #size-cells = <1>;\n    ranges;`;
+  if (name === "leds") return `compatible = "gpio-leds";`;
+  if (name.startsWith("serial") || name.startsWith("uart")) {
+    return `compatible = "ns16550";\n    reg = <${addr ?? "0x0"} 0x1000>;\n    status = "okay";`;
+  }
+  if (name.startsWith("i2c")) return `#address-cells = <1>;\n    #size-cells = <0>;\n    status = "okay";`;
+  if (name.startsWith("spi")) return `#address-cells = <1>;\n    #size-cells = <0>;\n    status = "okay";`;
+  if (addr) return `reg = <${addr} 0x1000>;\n    status = "okay";`;
+  return `status = "okay";`;
+}
+
+function hasCpu(root: DtNode | null): boolean {
+  if (!root) return false;
+  return Boolean(findFirst(root, (node) => node.name === "cpu" || node.fullName.startsWith("cpu@") || stringValues(propertyByName(node, "device_type")).includes("cpu")));
+}
+
+function hasMemory(root: DtNode | null): boolean {
+  if (!root) return false;
+  return Boolean(findFirst(root, (node) => node.name === "memory" || stringValues(propertyByName(node, "device_type")).includes("memory")));
 }
 
 function temperaturePlan(doc: DtDocument, text: string): EditPlan {
@@ -302,6 +649,37 @@ function insertChild(source: string, path: string, body: string): string {
     .map((line) => (line.length > 0 ? indent + line : line))
     .join("\n");
   lines.splice(node.endLine - 1, 0, block);
+  return lines.join("\n");
+}
+
+function deleteNode(source: string, path: string): string {
+  const node = nodeByPath(source, path);
+  if (node.path === "/") throw new Error("The root stays.");
+  const lines = source.split("\n");
+  lines.splice(node.line - 1, node.endLine - node.line + 1);
+  return lines.join("\n");
+}
+
+function upsertProperty(source: string, path: string, name: string, statement: string): string {
+  const node = nodeByPath(source, path);
+  const lines = source.split("\n");
+  const closing = lines[node.endLine - 1] ?? "";
+  const indent = `${(closing.match(/^\s*/) ?? [""])[0]}    `;
+  const escaped = name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const slot = lines.findIndex(
+    (line, index) =>
+      index >= node.line &&
+      index < node.endLine - 1 &&
+      line.startsWith(indent) &&
+      !line.startsWith(`${indent} `) &&
+      new RegExp(`^\\s*${escaped}\\s*(=|;)`).test(line),
+  );
+  const written = `${indent}${statement.trim().replace(/;$/, "")};`;
+  if (slot >= 0) {
+    lines[slot] = written;
+    return lines.join("\n");
+  }
+  lines.splice(node.line, 0, written);
   return lines.join("\n");
 }
 

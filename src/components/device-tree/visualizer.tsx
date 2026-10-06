@@ -345,7 +345,7 @@ export function Visualizer() {
                 : center === "board"
                   ? "diagram · brief · memory map"
                   : center === "edit"
-                    ? "propose · approve · save"
+                    ? "template · line · approve"
                     : "nodes and labels"}
             </span>
           </div>
