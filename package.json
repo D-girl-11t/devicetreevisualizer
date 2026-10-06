@@ -6,7 +6,7 @@
   "scripts": {
     "dev": "next dev --hostname 0.0.0.0 --port 4317",
     "build": "next build",
-    "start": "next start --hostname 0.0.0.0 --port 4317",
+    "start": "npx --yes serve out -l 4317",
     "lint": "eslint",
     "test": "vitest run"
   },
