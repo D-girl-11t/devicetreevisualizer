@@ -1,6 +1,7 @@
 "use client";
 
 import type { DtIndex } from "@/lib/dts/analyze";
+import type { BringupLink } from "@/lib/dts/bringup";
 import { compatibleOf, propertyByName, statusOf, stringValues, toJson } from "@/lib/dts/format";
 import type { DtNode, DtRef } from "@/lib/dts/types";
 import { ValueView } from "@/components/device-tree/value-view";
@@ -17,6 +18,7 @@ export function Inspector({
   onSelect,
   onRef,
   onJump,
+  link,
 }: {
   node: DtNode | null;
   index: DtIndex;
@@ -24,6 +26,7 @@ export function Inspector({
   onSelect: (path: string) => void;
   onRef: (ref: DtRef) => void;
   onJump: (line: number) => void;
+  link?: BringupLink | null;
 }) {
   const [copied, setCopied] = useState<string | null>(null);
 
@@ -77,6 +80,16 @@ export function Inspector({
       </div>
 
       <div className="min-h-0 flex-1 overflow-auto px-3 py-3">
+        {link ? (
+          <div className="mb-3 rounded-md border bg-muted/40 px-2.5 py-2">
+            <p className="text-[10px] font-semibold tracking-wide text-[var(--dt-string)] uppercase">Userspace</p>
+            <p className="mt-0.5 font-mono text-[12px] leading-5 break-words">{link.userspace}</p>
+            <p className="mt-1 text-[11px] text-[var(--dt-symbol)]">
+              {link.kernel.driver}
+              {link.kernel.config ? <span className="text-muted-foreground"> · {link.kernel.config}</span> : null}
+            </p>
+          </div>
+        ) : null}
         <div className="mb-3 flex flex-wrap items-center gap-1.5">
           {status ? (
             <Badge variant={status === "disabled" ? "destructive" : "secondary"}>{status}</Badge>

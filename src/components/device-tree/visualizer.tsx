@@ -1,11 +1,13 @@
 "use client";
 
 import { defaultExpanded, indexDocument, type NodeFilter } from "@/lib/dts/analyze";
+import { analyzeBringup } from "@/lib/dts/bringup";
 import { decompileDtb, isDtb } from "@/lib/dts/dtb";
 import { toJson } from "@/lib/dts/format";
 import { parseDts } from "@/lib/dts/parse";
 import { defaultExample, examples, type Example } from "@/lib/dts/samples";
 import type { DtRef } from "@/lib/dts/types";
+import { BringupPanel } from "@/components/device-tree/bringup-panel";
 import { Inspector } from "@/components/device-tree/inspector";
 import { parentPath, TreePanel } from "@/components/device-tree/tree-panel";
 import { SourcePanel } from "@/components/device-tree/source-panel";
@@ -14,7 +16,8 @@ import { cn } from "cn";
 import { Download, FoldVertical, Moon, Sun, UnfoldVertical } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 
-type Tab = "source" | "tree" | "node";
+type Tab = "source" | "tree" | "path" | "node";
+type Center = "tree" | "path";
 
 export function Visualizer() {
   const [source, setSource] = useState(defaultExample.source);
@@ -28,16 +31,22 @@ export function Visualizer() {
   const [filter, setFilter] = useState<NodeFilter>("all");
   const [showDeleted, setShowDeleted] = useState(false);
   const [tab, setTab] = useState<Tab>("tree");
+  const [center, setCenter] = useState<Center>("tree");
   const [pinnedLine, setPinnedLine] = useState<number | null>(null);
   const [dragging, setDragging] = useState(false);
 
   const doc = useMemo(() => parseDts(source), [source]);
   const index = useMemo(() => indexDocument(doc), [doc]);
+  const board = useMemo(() => analyzeBringup(doc, index), [doc, index]);
   const resolvedPath =
     selectedPath && index.byPath.has(selectedPath)
       ? selectedPath
       : (doc.root?.path ?? doc.unresolved[0]?.path ?? "");
   const selected = resolvedPath ? (index.byPath.get(resolvedPath) ?? null) : null;
+  const selectedLink =
+    board.links.find((link) => link.path === selected?.path && !link.deleted) ??
+    board.links.find((link) => link.path === selected?.path) ??
+    null;
   const activeLine = pinnedLine ?? selected?.line ?? null;
   const activeEnd = pinnedLine ?? selected?.endLine ?? null;
 
@@ -234,13 +243,17 @@ export function Visualizer() {
           [
             ["source", "Source"],
             ["tree", "Tree"],
+            ["path", "Path"],
             ["node", "Node"],
           ] as const
         ).map(([id, label]) => (
           <button
             key={id}
             type="button"
-            onClick={() => setTab(id)}
+            onClick={() => {
+              setTab(id);
+              if (id === "tree" || id === "path") setCenter(id);
+            }}
             className={cn(
               "rounded-md px-2.5 py-1 text-sm",
               tab === id ? "bg-muted font-medium text-foreground" : "text-muted-foreground",
@@ -279,7 +292,35 @@ export function Visualizer() {
             }}
           />
         </div>
-        <div className={cn("min-h-0 min-w-0 flex-1 flex-col", tab === "tree" ? "flex" : "hidden lg:flex")}>
+        <div className={cn("min-h-0 min-w-0 flex-1 flex-col", tab === "tree" || tab === "path" ? "flex" : "hidden lg:flex")}>
+          <div className="hidden shrink-0 items-center gap-1 border-b px-3 py-1.5 lg:flex">
+            {(
+              [
+                ["tree", "Tree"],
+                ["path", "Path"],
+              ] as const
+            ).map(([id, label]) => (
+              <button
+                key={id}
+                type="button"
+                onClick={() => {
+                  setCenter(id);
+                  setTab(id);
+                }}
+                className={cn(
+                  "rounded-md px-2.5 py-1 text-sm",
+                  center === id ? "bg-muted font-medium text-foreground" : "text-muted-foreground",
+                )}
+              >
+                {label}
+              </button>
+            ))}
+            <span className="ml-auto font-mono text-[11px] text-muted-foreground">
+              {center === "path" ? "pins · tree · kernel · userspace" : "nodes and labels"}
+            </span>
+          </div>
+          <div className="min-h-0 flex-1">
+          {center === "tree" ? (
           <TreePanel
             doc={doc}
             selectedPath={resolvedPath}
@@ -301,6 +342,15 @@ export function Visualizer() {
             onSelect={reveal}
             onInspect={() => setTab("node")}
           />
+          ) : (
+          <BringupPanel
+            board={board}
+            selectedPath={resolvedPath}
+            onSelect={reveal}
+            onInspect={() => setTab("node")}
+          />
+          )}
+          </div>
         </div>
         <div className={cn("min-h-0 flex-1 flex-col lg:flex-none", tab === "node" ? "flex" : "hidden lg:flex")}>
           <Inspector
@@ -316,6 +366,7 @@ export function Visualizer() {
               setPinnedLine(line);
               setTab("source");
             }}
+            link={selectedLink}
           />
         </div>
       </div>
