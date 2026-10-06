@@ -15,7 +15,7 @@ npm run dev
 
 Open [http://127.0.0.1:4317](http://127.0.0.1:4317).
 
-The same app is published with GitHub Pages from `main`: [https://d-girl-11t.github.io/devicetreevisualizer/](https://d-girl-11t.github.io/devicetreevisualizer/). The workflow in `.github/workflows/pages.yml` builds a static export. In the repository settings, set Pages to deploy from GitHub Actions.
+Pushing `main` to [D-girl-11t/devicetreevisualizer](https://github.com/D-girl-11t/devicetreevisualizer) runs `.github/workflows/pages.yml`, which builds a static export and deploys it with GitHub Pages. In the repository settings, set Pages to deploy from GitHub Actions. The site is then [https://d-girl-11t.github.io/devicetreevisualizer/](https://d-girl-11t.github.io/devicetreevisualizer/).
 
 ```bash
 npm test
